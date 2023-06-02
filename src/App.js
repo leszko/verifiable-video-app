@@ -2,14 +2,15 @@ import "./styles/App.css";
 import { ethers } from "ethers";
 import React, { useEffect, useState } from "react";
 import * as fcl from "@onflow/fcl";
-import {Buffer} from "buffer"
-import stringify from "fast-stable-stringify"
+import { Buffer } from "buffer";
+import stringify from "fast-stable-stringify";
 
-const CONTRACT_ADDRESS = "0x349E832e461309c00a2432E258403C2b6Aa1C47D";
+const SAMPLE_CID =
+  "bafybeiaumgwp7p6cw3ej3xkg74dp3atfwlzin2pr3ml3j7qlrci23wwxze";
 
 const App = () => {
   const [currentAccount, setCurrentAccount] = useState("");
-  const [contract, setContract] = useState(CONTRACT_ADDRESS);
+  const [cid, setCid] = useState(SAMPLE_CID);
 
   const checkIfWalletIsConnected = async () => {
     const { ethereum } = window;
@@ -57,95 +58,61 @@ const App = () => {
       const { ethereum } = window;
 
       if (ethereum) {
-
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
-        console.log(signer);
-        const address = await signer.getAddress();
-
-        console.log("Clicked SIGN");
-
-        const data = {
-          types: {
-            EIP712Domain: [
-              { name: "name", type: "string" },
-              { name: "version", type: "string" },
-            ],
-            Video: [
-              { name: "video", type: "string" },
-              { name: "attestations", type: "Attestation[]" },
-              { name: "timestamp", type: "uint256" }
-            ],
-            Attestation: [
-                { name: "role", type: "string" },
-                { name: "address", type: "address" },
-            ]
-          },
-          primaryType: "Video",
-          domain: {
-            name: "Verifiable Video",
-            version: "1",
-          },
-          message: {
-            video: "ipfs://bafybeihhhndfxtursaadlvhuptet6zqni4uhg7ornjtlp5qwngv33ipv6m",
-            attestations: [{
-                role: "creator",
-                address: "0xB7D5D7a6FcFE31611E4673AA3E61f21dC56723fC",
-            }],
-            signer: "0xB7D5D7a6FcFE31611E4673AA3E61f21dC56723fC",
-            timestamp: 1684241365
-          },
-        };
-
-        console.log("Provider: ", provider);
 
         const domain = {
-          name: 'Verifiable Video',
-          version: '1',
+          name: "Verifiable Video",
+          version: "1",
         };
-
         const types = {
           Video: [
             { name: "video", type: "string" },
             { name: "attestations", type: "Attestation[]" },
-            { name: "timestamp", type: "uint256" }
+            { name: "timestamp", type: "uint256" },
           ],
           Attestation: [
-              { name: "role", type: "string" },
-              { name: "address", type: "address" },
-          ]
+            { name: "role", type: "string" },
+            { name: "address", type: "address" },
+          ],
         };
-
         const message = {
-          video: "ipfs://bafybeiaumgwp7p6cw3ej3xkg74dp3atfwlzin2pr3ml3j7qlrci23wwxze",
-          attestations: [{
+          video: `ipfs://${cid}`,
+          attestations: [
+            {
               role: "creator",
-              address: "0xB7D5D7a6FcFE31611E4673AA3E61f21dC56723fC",
-          }],
-          signer: "0xB7D5D7a6FcFE31611E4673AA3E61f21dC56723fC",
-          timestamp: 1685704750393
+              address: signer.address,
+            },
+          ],
+          signer: signer.address,
+          timestamp: Date.now(),
         };
 
-        // console.log("message stringified: ", stringify(message))
-        // const encoded = ethers.TypedDataEncoder.encode(domain, types, message);
-        // console.log("encoded: ", encoded);
-        // const decoded = ethers.TypedDataEncoder.from(encoded, types);
-        // console.log("decoded: ", decoded) 
-
+        // Sign EIP-712 data
         const signature = await signer.signTypedData(domain, types, message);
-
-        // const signature = await signer.provider.send("eth_signTypedData_v4", [
-        //   address,
-        //   JSON.stringify(data),
-        // ]);
-
-        const recoveredAddress = ethers.verifyTypedData(domain, types, message, signature);
-
-        // const signature = await signer.signMessage(stringify(message));
-        // const recoveredAddress = ethers.verifyMessage(stringify(message), signature);
-
         console.log("Signature: ", signature);
-        console.log("Verified Public Key: ", recoveredAddress)
+
+        // Send to Studio
+        const payload = {
+          primaryType: "VideoAttestation",
+          domain,
+          message,
+          signature,
+        };
+        console.log("Payload: ", JSON.stringify(payload));
+        // This may return error because of CORS, but it still works fine
+        const response = await fetch(
+          "https://livepeer.studio/api/experiment/-/attestation",
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+        console.log("Response: ", response);
       } else {
         console.log("Ethereum object doesn't exist!");
       }
@@ -156,99 +123,55 @@ const App = () => {
 
   const askToSignFlow = async () => {
     try {
+      await fcl.config({
+        "discovery.wallet": "https://fcl-discovery.onflow.org/testnet/authn",
+      });
 
-      // fcl.config({
-      //   "discovery.wallet": "https://fcl-discovery.onflow.org/testnet/authn",
-      //   "flow.network": "testnet",
-      //   "accessNode.api": "https://access-testnet.onflow.org"
-      // })
-      
-      // await fcl.authenticate()
-      
-      // const currentUserSnapshot = await fcl.currentUser().snapshot()
-      // const currentUserAddress = currentUserSnapshot.addr
-      // console.log("Address: ", currentUserAddress);
+      await fcl.authenticate();
 
-      // const message = Buffer.from("FOO").toString("hex")
+      const address = (await fcl.currentUser().snapshot()).addr;
 
-      // const signatures = await fcl.currentUser().signUserMessage(message);
+      const message = {
+        video: `ipfs://${cid}`,
+        attestations: [
+          {
+            role: "creator",
+            address: address,
+          },
+        ],
+        signer: address,
+        timestamp: Date.now(),
+      };
 
-      // console.log("signatures: ", signatures);
+      // Sign Flow data
+      const signatures = await fcl
+        .currentUser()
+        .signUserMessage(Buffer.from(stringify(message)).toString("hex"));
 
-      // const isVerified = await fcl.AppUtils.verifyUserSignatures(
-      //     message,
-      //     signatures
-      // )
-
-      // console.log("isVerified: ", isVerified);
-
-    await fcl.config({
-      "discovery.wallet": "https://fcl-discovery.onflow.org/testnet/authn",
-      "flow.network": "testnet",
-      "accessNode.api": "https://access-testnet.onflow.org"
-    })
-
-    await fcl.authenticate()
-    // await fcl.unauthenticate()
-
-    const domain = {
-      name: 'Verifiable Video',
-      version: '1',
-    };
-
-    const types = {
-      Video: [
-        { name: "video", type: "string" },
-        { name: "attestations", type: "Attestation[]" },
-        { name: "timestamp", type: "uint256" }
-      ],
-      Attestation: [
-          { name: "role", type: "string" },
-          { name: "address", type: "address" },
-      ]
-    };
-
-    const message2 = "a1b2"
-    const message = {
-      video: "ipfs://bafybeiaumgwp7p6cw3ej3xkg74dp3atfwlzin2pr3ml3j7qlrci23wwxze",
-      attestations: [{
-          role: "creator",
-          address: "0xd10f88cea4ef9a06",
-      }],
-      signer: "0xd10f88cea4ef9a06",
-      timestamp: 1685704750393
-    };
-    const signatures = await fcl.currentUser().signUserMessage(Buffer.from(stringify(message)).toString("hex"));
-    const payload = {
-      primaryType: "VideoAttestation",
-      domain: {
-        name: "Verifiable Video",
-        version: "1",
-      },
-      message,
-      signature: signatures[0].signature
-    }
-    console.log("payload: ", payload);
-    console.log("signatures: ", signatures)
-
-    console.log("Signature: " + signatures[0].signature)
-
-  const compSig = {
-    f_type: "CompositeSignature",
-    f_vsn: "1.0.0",
-    addr: "0xd10f88cea4ef9a06",
-    keyId: 0,
-    signature: signatures[0].signature,
-  }
-
-    const isVerified = await fcl.AppUtils.verifyUserSignatures(
-      Buffer.from(stringify(message)).toString("hex"),
-        [compSig]
-    )
-    console.log("isVerified: ", isVerified);
-
-
-      
+      // Send to Studio
+      const payload = {
+        primaryType: "VideoAttestation",
+        domain: {
+          name: "Verifiable Video",
+          version: "1",
+        },
+        message,
+        signature: signatures[0].signature,
+      };
+      console.log("Payload: ", JSON.stringify(payload));
+      // This may return error because of CORS, but it still works fine
+      const response = await fetch(
+        "https://livepeer.studio/api/experiment/-/attestation",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      console.log("Response: ", response);
     } catch (error) {
       console.log(error);
     }
@@ -256,7 +179,7 @@ const App = () => {
 
   useEffect(() => {
     checkIfWalletIsConnected();
-  }, [contract]);
+  }, [cid]);
 
   const renderNotConnectedContainer = () => (
     <button
@@ -267,18 +190,18 @@ const App = () => {
     </button>
   );
 
-  const renderContract = () => (
+  const renderCid = () => (
     <div>
       <input
         style={{ width: "320px" }}
         type="text"
-        placeholder={contract}
-        onChange={(e) => setContract(e.target.value)}
+        placeholder={cid}
+        onChange={(e) => setCid(e.target.value)}
       ></input>
     </div>
   );
 
-  const renderMintUI = () => (
+  const renderEthUI = () => (
     <div className="column main-box">
       <h2 style={{ color: "#00FF00" }}>SIGN</h2>
       <button
@@ -309,10 +232,10 @@ const App = () => {
       <div className="container">
         <div className="header-container">
           <p className="header gradient-text">EIP-712 Playground</p>
-          {renderContract()}
+          {renderCid()}
           {currentAccount === ""
             ? renderNotConnectedContainer()
-            : renderMintUI()}
+            : renderEthUI()}
           {currentAccount === ""
             ? renderNotConnectedContainer()
             : renderFlowUI()}
